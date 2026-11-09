@@ -82,6 +82,11 @@ button,input,select{font:inherit;color:inherit}
 .it .pen{opacity:0;margin-top:1px}
 .it:hover .pen,.it.editing .pen{opacity:1}
 .busy{font-size:11.5px;color:var(--accent)}
+.gm{display:flex;gap:8px;align-items:center;margin-top:4px;font-size:12px}
+.gm a{color:var(--accent);text-decoration:none;white-space:nowrap;font-weight:400}
+.gm a:hover{text-decoration:underline}
+.gm input{flex:1;min-width:0;border:1px dashed #d4d0c6;border-radius:6px;padding:3px 7px;font-size:12px;background:#fff;outline:none}
+.gm input:focus{border-style:solid;border-color:var(--accent)}
 .add{display:flex;gap:6px;align-items:center;margin:6px 0 2px 18px}
 .add input{flex:1;border:1px dashed #d4d0c6;border-radius:7px;padding:5px 9px;font-size:12.5px;background:transparent;outline:none}
 .add input:focus{border-style:solid;border-color:var(--accent);background:#fff}
@@ -161,6 +166,9 @@ button,input,select{font:inherit;color:inherit}
 .links{display:flex;gap:16px;margin-top:12px;font-size:12.5px;flex-wrap:wrap}
 .links a{color:var(--accent);text-decoration:none}
 .links a:hover{text-decoration:underline}
+.links .fix{margin-left:auto;border:none;background:none;padding:0;color:var(--accent);cursor:pointer;font-size:12.5px}
+.links .fix:hover{text-decoration:underline}
+#card .gm{margin-top:10px}
 #placebar{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:#1f2328;color:#fff;font-size:13px;padding:8px 12px;border-radius:9px;display:none;z-index:1200;gap:10px;align-items:center}
 #placebar button{background:#fff;color:#1f2328;border:none;border-radius:6px;padding:2px 8px;cursor:pointer}
 #loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--muted);font-size:14px;z-index:4000}
@@ -227,7 +235,7 @@ const PEN='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.7
 function icon(k,fg,bg){const c=CATS[k]||CATS.culture;return `<svg viewBox="0 0 24 24" fill="${fg}" style="--bgc:${bg}">${c.svg}</svg>`;}
 /* ---------- state ---------- */
 let S=null, snap='', undoStack=[], redoStack=[];
-const UI={tab:'days',sel:null,focus:null,card:null,showAlt:true,showDetail:true,placing:null,busy:{},editItem:null,editDay:null,editEvent:null,editHead:false,placesFilter:'all'};
+const UI={tab:'days',sel:null,focus:null,card:null,showAlt:true,showDetail:true,placing:null,busy:{},editItem:null,editDay:null,editEvent:null,editHead:false,placesFilter:'all',unfound:{},cardFix:null};
 const $=s=>document.querySelector(s);
 const el=(tag,cls,txt)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e;};
 const uid=()=>Math.random().toString(36).slice(2,9);
@@ -409,6 +417,7 @@ function itemMenu(it,di){
   else m.push(['排進某一天',()=>later(()=>{ const r=document.querySelector(`.it[data-id="${it.id}"] .grip`); popMenu(r||$('#list'),S.days.map(d=>[`${dateLabel(d.date)} ${d.city}`,()=>moveItem(it.id,d.items,d.items.length)])); })]);
   if(di>=0) m.push(['移到候選',()=>moveItem(it.id,S.pool,S.pool.length)]);
   m.push(['在地圖上設定位置',()=>startPlacing(it.id)]);
+  m.push(['用 Google 地圖網址定位',()=>{ UI.unfound[it.id]=true; renderList(); later(()=>{const n=document.querySelector(`[data-k="gm:${it.id}"]`); if(n) n.focus();}); }]);
   m.push('hr',['刪除',()=>deleteItem(it.id),'danger']);
   return m;
 }
@@ -435,6 +444,7 @@ function itemRow(it,list,di,prevT,mode){
   tx.appendChild(ed(it.note,{on:editing,cls:'nt',k:'nt:'+it.id,ph:'備註',multi:true,save:v=>{it.note=v;commit({render:false});}}));
   if(mode==='places'&&!editing){ const f=findItem(it.id); tx.appendChild(el('span','meta2',placeMeta(it))); }
   if(UI.busy[it.id]) tx.appendChild(el('span','busy',UI.busy[it.id]));
+  if(UI.unfound[it.id]||(di<0&&!hasP)) tx.appendChild(gmRow(it));
   r.appendChild(tx);
   r.appendChild(penBtn(editing,()=>{ UI.editItem=editing?null:it.id; later(()=>{renderList(); if(!editing){const n=document.querySelector(`.it[data-id="${it.id}"] .nm`); if(n) n.focus();}}); }));
   r.onclick=ev=>{ if(editing) return; if(hasP){ openItem(it.id,true); return; }
@@ -448,6 +458,39 @@ function itemRow(it,list,di,prevT,mode){
     r.addEventListener('drop',ev=>{ if(!DRAG||DRAG.type!=='item'||DRAG.id===it.id) return; ev.preventDefault(); ev.stopPropagation(); const after=r.classList.contains('drop-after'); r.classList.remove('drop-before','drop-after'); const idx=list.indexOf(it); moveItem(DRAG.id,list,after?idx+1:idx); });
   }
   return r;
+}
+/* place not found: search it on Google Maps, then paste the page URL back here to read its coordinates */
+function gmRow(it){
+  const f=findItem(it.id); const w=el('div','gm');
+  const a=el('a','','在 Google 地圖搜尋 ↗'); a.href=gmaps(it.n+(f&&cityOf(f)?' '+cityOf(f):'')); a.target='_blank'; a.rel='noopener';
+  a.addEventListener('click',ev=>ev.stopPropagation());
+  const inp=el('input'); inp.placeholder='貼上 Google 地圖網址'; inp.dataset.k='gm:'+it.id;
+  const go=v=>{ if(v.trim()) applyGmaps(it.id,v); };
+  inp.addEventListener('click',ev=>ev.stopPropagation());
+  inp.addEventListener('keydown',ev=>{ ev.stopPropagation(); if(ev.key==='Enter'&&!ev.isComposing){ ev.preventDefault(); go(inp.value); } else if(ev.key==='Escape'){ if(w.closest('#card')){ UI.cardFix=null; inp.blur(); renderCard(); return; } delete UI.unfound[it.id]; renderList(); } });
+  inp.addEventListener('paste',ev=>{ const t=(ev.clipboardData||window.clipboardData).getData('text/plain')||''; if(!t.trim()) return; ev.preventDefault(); inp.value=t.trim(); go(t); });
+  w.append(a,inp); return w;
+}
+function parseGmaps(raw){
+  let t=String(raw||'').trim(); try{ t=decodeURIComponent(t); }catch(e){}
+  const N='(-?\\d{1,3}(?:\\.\\d+)?)';
+  const pats=[new RegExp('!3d'+N+'!4d'+N), new RegExp('@'+N+','+N), new RegExp('/(?:search|place|dir)/'+N+'[,\\s+]+'+N),
+    new RegExp('[?&](?:q|query|ll|center|destination|daddr|sll)='+N+'[,\\s+]+'+N), new RegExp('^'+N+'\\s*[,\\s]\\s*'+N+'$')];
+  let m=null; for(const p of pats){ m=p.exec(t); if(m) break; }
+  if(!m) return null; const lat=+m[1], lon=+m[2];
+  if(!(Math.abs(lat)<=90&&Math.abs(lon)<=180)||(lat===0&&lon===0)) return null;
+  const nm=/\/maps\/place\/([^\/@?]+)/.exec(t); let name=nm?nm[1].replace(/\+/g,' ').trim():'';
+  if(/^-?\d+(\.\d+)?[,\s]/.test(name)) name='';
+  return {lat,lon,name};
+}
+function applyGmaps(id,v){
+  const f=findItem(id); if(!f) return; const p=parseGmaps(v);
+  if(!p){ toast(/goo\.gl|maps\.app/i.test(v)?'短網址讀不到座標，請在 Google 地圖網頁版複製網址列的完整網址':'網址裡找不到座標，請先在 Google 地圖點選地點再複製網址'); return; }
+  const it=f.it, moved=!hasPos(it)||Math.hypot(it.lat-p.lat,it.lon-p.lon)>0.01;
+  if(moved&&hasPos(it)){ delete it.wiki; delete it.ph; }
+  it.lat=+p.lat.toFixed(5); it.lon=+p.lon.toFixed(5); if(p.name&&(moved||!it.q)) it.q=p.name+(cityOf(f)?' '+cityOf(f):'');
+  const a=document.activeElement; if(a&&a.blur) a.blur();
+  delete UI.unfound[id]; UI.cardFix=null; UI.focus=id; commit(); flyTo(f.it); toast(`已設定「${f.it.n}」的位置`,'復原',undo);
 }
 function moveItem(id,toList,toIdx){
   const f=findItem(id); if(!f) return;
@@ -530,7 +573,7 @@ function renderPlaces(L){
     g.forEach(x=>{ const f=findItem(x.it.id); box.appendChild(itemRow(x.it,f.list,x.di,null,'places')); });
     L.appendChild(box);
   });
-  const box=el('div','items'); box.appendChild(addRow(S.pool,-1)); L.appendChild(box);
+  const box=el('div','items'); S.pool.filter(it=>!hasPos(it)).forEach(it=>box.appendChild(itemRow(it,S.pool,-1,null,'places'))); box.appendChild(addRow(S.pool,-1)); L.appendChild(box);
 }
 function placeMeta(it){
   const g=(PL_DUPS[it.id]||[]).filter(x=>x.di>=0); const f=findItem(it.id);
@@ -570,7 +613,8 @@ function cardTarget(){ if(!UI.card) return null;
   const f=findItem(UI.card.id); if(!f) return null; const o=f.it;
   return {o,k:o.k,sub:CATS[o.k]?CATS[o.k].name:'',q:o.q||(o.n+' '+cityOf(f)),wiki:o.wiki,gq:o.q||(o.n+' '+cityOf(f)),desc:o.desc,note:o.note}; }
 function renderCard(){
-  const c=$('#card'); const T=cardTarget(); if(!T){UI.card=null;c.style.display='none';c.innerHTML='';return;}
+  const c=$('#card'); const T=cardTarget(); if(!T){UI.card=null;UI.cardFix=null;c.style.display='none';c.innerHTML='';return;}
+  if(UI.cardFix&&UI.cardFix!==UI.card.id) UI.cardFix=null;
   const a=document.activeElement; if(a&&c.contains(a)) return;
   const o=T.o;
   c.innerHTML=''; c.style.display='block';
@@ -592,7 +636,11 @@ function renderCard(){
   if(T.wiki) link('Wikipedia','https://en.wikipedia.org/wiki/'+encodeURIComponent(T.wiki));
   link('Google',gsearch(T.gq));
   const src=link('圖片來源','#'); src.style.display='none';
-  b.appendChild(ln); c.appendChild(b);
+  b.appendChild(ln);
+  if(UI.card.type==='item'){
+    const fx=el('button','fix','修正'); fx.onclick=ev=>{ ev.stopPropagation(); fx.blur(); UI.cardFix=UI.cardFix===o.id?null:o.id; renderCard(); if(UI.cardFix) later(()=>{const n=$('#card .gm input'); if(n) n.focus();}); };
+    ln.appendChild(fx); if(UI.cardFix===o.id) b.appendChild(gmRow(o)); }
+  c.appendChild(b);
   const token=++cardToken;
   getPhotos(o,T).then(photos=>{ if(token!==cardToken) return; showPhotos(ph,x,photos,src); });
 }
@@ -653,22 +701,26 @@ async function fillAllPhotos(){
 /* ---------- geocoding ---------- */
 async function geocode(id,auto){
   const f=findItem(id); if(!f) return; const it=f.it;
-  const near=(f.day?f.day.items:S.pool).filter(hasPos);
+  /* search only inside the area the trip already covers that day (or that city's candidates), so a name like "master cannon" can't jump to another country */
+  const city=cityOf(f);
+  let near=f.day?f.day.items.filter(x=>hasPos(x)&&x.id!==id):S.pool.filter(x=>hasPos(x)&&x.id!==id&&city&&x.city===city);
+  if(!near.length&&city) S.days.forEach(d=>{ if(d.city===city) near=near.concat(d.items.filter(hasPos)); });
   UI.busy[id]='找位置中…'; renderList();
   try{
     let lat,lon,wiki=null,q=null;
     if(lat===undefined){
       let url='https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&extratags=1&accept-language=zh-TW,en&q='+encodeURIComponent(it.n+(cityOf(f)?' '+cityOf(f):''));
-      if(near.length){ const la=near.map(x=>x.lat), lo=near.map(x=>x.lon); url+=`&viewbox=${Math.min(...lo)-.3},${Math.max(...la)+.3},${Math.max(...lo)+.3},${Math.min(...la)-.3}`; }
+      if(near.length){ const la=near.map(x=>x.lat), lo=near.map(x=>x.lon); url+=`&bounded=1&viewbox=${Math.min(...lo)-.3},${Math.max(...la)+.3},${Math.max(...lo)+.3},${Math.min(...la)-.3}`; }
       let r=await fetch(url); let j=r.ok?await r.json():[];
       if(!j.length&&cityOf(f)){ r=await fetch(url.replace(encodeURIComponent(it.n+' '+cityOf(f)),encodeURIComponent(it.n))); j=r.ok?await r.json():[]; }
       if(j.length){ lat=+j[0].lat; lon=+j[0].lon; const w=j[0].extratags&&j[0].extratags.wikipedia; if(w&&/^en:/.test(w)) wiki=w.slice(3).replace(/ /g,'_'); q=j[0].name?(j[0].name+(cityOf(f)?' '+cityOf(f):'')):null; }
     }
     delete UI.busy[id]; const g=findItem(id); if(!g){renderList();return;}
-    if(lat===undefined){ toast(`找不到「${it.n}」的位置，點左側 ⋮⋮ 可以在地圖上設定`); renderAll(); return; }
+    if(lat===undefined){ UI.unfound[id]=true; renderAll(); return; }
     g.it.lat=+lat.toFixed(5); g.it.lon=+lon.toFixed(5); if(wiki&&!g.it.wiki) g.it.wiki=wiki; if(q&&!g.it.q) g.it.q=q;
     UI.focus=id; commit(); flyTo(g.it);
-  }catch(e){ delete UI.busy[id]; toast('找位置失敗，可以再試一次或在地圖上點選'); renderList(); }
+    toast(`已定位「${g.it.n}」，不對的話可以修正`,'修正',()=>{ UI.cardFix=id; openItem(id,false); later(()=>{const n=$('#card .gm input'); if(n) n.focus();}); });
+  }catch(e){ delete UI.busy[id]; UI.unfound[id]=true; renderList(); }
 }
 
 /* ---------- map (Leaflet) ---------- */
