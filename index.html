@@ -9,7 +9,8 @@
 html,body{margin:0;height:100%;font-family:"Noto Serif TC","Songti TC","Source Han Serif TC","PMingLiU","MingLiU",serif;color:var(--ink);background:var(--bg)}
 button,input,select{font:inherit;color:inherit}
 .leaflet-container{font-family:inherit}
-#app{display:flex;height:100vh;width:100%}
+#app{display:flex;height:100vh;height:100dvh;width:100%}
+#grab{display:none}
 #side{width:390px;min-width:320px;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column}
 #head{padding:14px 16px 4px;position:relative}
 #ttl{font-size:18px;font-weight:650;letter-spacing:.3px;display:block;margin-right:28px}
@@ -181,11 +182,13 @@ button,input,select{font:inherit;color:inherit}
 #placebar button{background:#fff;color:#1f2328;border:none;border-radius:6px;padding:2px 8px;cursor:pointer}
 #loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--muted);font-size:14px;z-index:4000}
 @media (hover:none){.dgrip,.grip,.dh .pen,.it .pen,.ev .pen,.ev .grip,#head .pen{opacity:1}}
-@media (max-width:760px){#app{flex-direction:column-reverse}#side{width:100%;min-width:0;height:52vh;border-right:none;border-top:1px solid var(--line)}#mapwrap{height:48vh;flex:none}#card{left:10px;right:10px;width:auto;top:10px;max-height:calc(100% - 20px)}.ph{height:160px}}
+@media (max-width:760px){#app{flex-direction:column-reverse}#side{width:100%;min-width:0;height:var(--sideh,52%);flex:none;border-right:none;border-top:1px solid var(--line)}#mapwrap{flex:1 1 auto;min-height:0}
+#grab{display:block;flex:none;height:20px;margin-bottom:-8px;cursor:ns-resize;touch-action:none;position:relative}#grab::before{content:"";position:absolute;left:50%;top:8px;width:38px;height:4px;border-radius:2px;background:#d4d0c6;transform:translateX(-50%)}#side.resizing #grab::before{background:var(--accent)}#head{touch-action:none}#side.resizing{user-select:none}#card{left:10px;right:10px;width:auto;top:10px;max-height:calc(100% - 20px)}.ph{height:160px}}
 </style></head><body>
 <div id="loading">載入行程中…</div>
 <div id="app">
  <aside id="side">
+  <div id="grab"></div>
   <div id="head"><span id="ttl" class="ed"></span><span id="sub" class="ed"></span></div>
   <div id="tabs">
    <button class="pill" data-tab="days">行程</button>
@@ -902,6 +905,24 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){ if(UI.placing) stopPlacing(); else if(UI.editItem||UI.editDay||UI.editEvent||UI.editHead){UI.editItem=UI.editDay=UI.editEvent=null;UI.editHead=false;renderAll();} else if(UI.card){UI.card=null;renderCard();} closePop(); }
 });
 
+/* ---------- mobile: drag the top of the list panel to trade space between list and map ---------- */
+const MOBILE=matchMedia('(max-width:760px)');
+function setSideH(pct){ pct=Math.max(18,Math.min(92,pct)); $('#app').style.setProperty('--sideh',pct.toFixed(1)+'%'); return pct; }
+(function initSheet(){
+  const side=$('#side'), app=$('#app'); let y0=null, h0=0, pct=null, raf=0, moved=false;
+  const saved=lsGet('trip-ui:sideh'); if(typeof saved==='number') setSideH(saved);
+  const start=ev=>{ if(!MOBILE.matches) return;
+    if(ev.currentTarget.id==='head'&&(UI.editHead||ev.target.closest('.pen'))) return;
+    y0=ev.clientY; h0=side.offsetHeight; moved=false; ev.currentTarget.setPointerCapture(ev.pointerId); };
+  const move=ev=>{ if(y0===null) return; const dy=ev.clientY-y0; if(!moved&&Math.abs(dy)<4) return;
+    if(!moved){ moved=true; side.classList.add('resizing'); }
+    pct=setSideH((h0-dy)/app.clientHeight*100);
+    if(!raf) raf=requestAnimationFrame(()=>{ raf=0; if(map) map.invalidateSize({pan:false}); }); };
+  const end=()=>{ if(y0===null) return; y0=null; side.classList.remove('resizing');
+    if(moved&&pct!==null){ lsSet('trip-ui:sideh',pct); if(map) map.invalidateSize({pan:false}); } };
+  [$('#grab'),$('#head')].forEach(n=>{ n.addEventListener('pointerdown',start); n.addEventListener('pointermove',move); n.addEventListener('pointerup',end); n.addEventListener('pointercancel',end); });
+  MOBILE.addEventListener('change',()=>later(()=>map&&map.invalidateSize()));
+})();
 /* ---------- boot ---------- */
 const MIG={sight:'culture',inst:'academic',food:'restaurant',move:'transit',note:'life'};
 function normalize(j){
