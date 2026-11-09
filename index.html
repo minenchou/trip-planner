@@ -43,7 +43,9 @@ button,input,select{font:inherit;color:inherit}
 .dot{width:13px;height:13px;border-radius:50%;flex:none;border:none;padding:0}
 .day.editing .dot{cursor:pointer;box-shadow:0 0 0 2px #fff,0 0 0 3px #d8d3c7}
 .dd{font-weight:650;font-size:14px;white-space:nowrap}
-.dd input{font-size:12.5px;width:132px;padding:1px 4px;border:1px solid #d8d3c7;border-radius:5px}
+.dd.pick{position:relative;cursor:pointer;background:#fff;box-shadow:0 0 0 1px #d8d3c7;border-radius:4px;padding:0 4px}
+.dd.pick:hover{box-shadow:0 0 0 1.5px var(--accent)}
+.dd.pick input{position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;pointer-events:none;border:none;padding:0;margin:0}
 .dc{font-size:13.5px}
 .dmeta{font-size:11.5px;color:var(--faint);white-space:nowrap;margin-left:auto}
 .dt{font-size:12px;color:var(--muted);margin:2px 0 0 39px;line-height:1.45;display:block}
@@ -65,6 +67,12 @@ button,input,select{font:inherit;color:inherit}
 .tm{width:40px;flex:none;font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--muted);line-height:20px;text-align:right}
 .it.editing .tm:empty::before{content:"--:--";color:#c2c0ba}
 .tm.warn{color:var(--warn);font-weight:600}
+.tsel{flex:none;display:flex;align-items:center;gap:1px;font-variant-numeric:tabular-nums;line-height:20px}
+.tsel select{appearance:none;-webkit-appearance:none;border:1px solid #d8d3c7;border-radius:5px;background:#fff;height:20px;padding:0 4px;font-size:12.5px;font-variant-numeric:tabular-nums;cursor:pointer;outline:none;text-align:center}
+.tsel select:focus{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.tsel select:disabled{color:#c2c0ba;cursor:default}
+.tsel span{color:var(--muted);font-size:12px}
+.tsel.warn select{color:var(--warn);font-weight:600}
 .ic{flex:none;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center}
 .ic svg{width:12px;height:12px}
 .ic.alt{background:#fff!important;border:1.5px dashed var(--alt)}
@@ -372,9 +380,10 @@ function renderList(){
       UI.sel=S.days.length-1; UI.editDay=S.days[UI.sel].id; commit();}; L.appendChild(ad); }
   L.scrollTop=top;
 }
-function parseMD(v,d,di){ const m=/(\d{1,2})\s*[\/月.]\s*(\d{1,2})/.exec(v); if(!m) return null; let y=+d.date.slice(0,4);
-  const prev=di>0?S.days[di-1].date:d.date; let iso=`${y}-${String(+m[1]).padStart(2,'0')}-${String(+m[2]).padStart(2,'0')}`;
-  if(isNaN(new Date(iso+'T12:00:00'))) return null; if(new Date(iso)<new Date(prev)-180*864e5){ y++; iso=y+iso.slice(4); } return iso; }
+/* picking a new date for a day moves that day and every later day by the same number of days */
+function setDate(di,iso){ const d=S.days[di]; if(!d||iso===d.date) return;
+  const delta=Math.round((new Date(iso+'T12:00:00')-new Date(d.date+'T12:00:00'))/864e5); for(let i=di;i<S.days.length;i++) S.days[i].date=shiftISO(S.days[i].date,delta);
+  commit(); if(di<S.days.length-1) toast(`後面的日子也一起移動 ${delta>0?'+':''}${delta} 天`,'復原',undo); }
 function toggleDayEdit(d,di){ if(UI.editDay===d.id){ UI.editDay=null; later(()=>renderAll()); } else { UI.editDay=d.id; UI.sel=di; renderAll(); later(()=>{const n=document.querySelector(`[data-k="city:${d.id}"]`); if(n) n.focus();}); } }
 function dayBlock(d,di){
   const editing=UI.editDay===d.id;
@@ -386,9 +395,10 @@ function dayBlock(d,di){
     ev=>{DRAG={type:'day',id:d.id}; b.classList.add('dragging'); ev.dataTransfer.effectAllowed='move'; try{ev.dataTransfer.setData('text/plain',d.id);ev.dataTransfer.setDragImage(b,10,10);}catch(e){}});
   const dot=el('button','dot'); dot.style.background=d.color;
   dot.onclick=ev=>{ if(!editing) return; ev.stopPropagation(); const c=el('input'); c.type='color'; c.value=d.color; c.style.position='fixed'; c.style.opacity='0'; document.body.appendChild(c); c.onchange=()=>{d.color=c.value;c.remove();commit();}; c.click(); };
-  const dd=ed(dateLabel(d.date),{on:editing,cls:'dd',k:'dd:'+d.id,ph:'日期',save:v=>{ const iso=parseMD(v,d,di); if(!iso){toast('日期請寫成 1/30 這樣');return false;} if(iso===d.date) return false;
-      const delta=Math.round((new Date(iso+'T12:00:00')-new Date(d.date+'T12:00:00'))/864e5); for(let i=di;i<S.days.length;i++) S.days[i].date=shiftISO(S.days[i].date,delta);
-      commit(); if(di<S.days.length-1) toast(`後面的日子也一起移動 ${delta>0?'+':''}${delta} 天`,'復原',undo); }});
+  const dd=el('span','dd'+(editing?' pick':''),dateLabel(d.date));
+  if(editing){ const inp=el('input'); inp.type='date'; inp.value=d.date; inp.tabIndex=-1; dd.appendChild(inp);
+    dd.onclick=ev=>{ ev.stopPropagation(); try{ inp.showPicker(); }catch(e){ inp.focus(); inp.click(); } };
+    inp.addEventListener('change',()=>{ if(inp.value) setDate(di,inp.value); }); }
   const dc=ed(d.city,{on:editing,cls:'dc',k:'city:'+d.id,ph:'城市',save:v=>{d.city=v;commit({render:false});}});
   const ts=d.items.filter(x=>!x.alt&&x.t).map(x=>x.t);
   const meta=el('span','dmeta',ts.length?`${ts[0]}–${ts[ts.length-1]}`:'');
@@ -428,7 +438,7 @@ function itemRow(it,list,di,prevT,mode){
   const r=el('div','it'+(small?' small':'')+(it.alt?' alt':'')+(UI.focus===it.id?' focus':'')+(editing?' editing':''));
   r.dataset.id=it.id;
   r.appendChild(grip('grip',()=>itemMenu(it,di), mode==='day'?(ev=>{DRAG={type:'item',id:it.id}; r.classList.add('dragging'); ev.dataTransfer.effectAllowed='move'; try{ev.dataTransfer.setData('text/plain',it.id);ev.dataTransfer.setDragImage(r,10,10);}catch(e){}}):null));
-  if(mode==='day'){ const tm=ed(it.t||'',{on:editing,cls:'tm',k:'t:'+it.id,save:v=>{const n=normT(v); if(n===null){toast('時間請寫成 09:30 這樣');return false;} it.t=n; resort(list); commit();}});
+  if(mode==='day'){ const tm=editing?timePick(it,list):el('span','tm',it.t||'');
     if(it.t&&prevT!==null&&!it.alt&&tmin(it.t)<prevT) tm.classList.add('warn'); r.appendChild(tm); }
   const col=di>=0&&!it.alt?itemColor(it,di):'#8d9096';
   const ic=el('span','ic'+(it.alt||di<0?' alt':'')+(!hasP?' plain':'')+(editing?' pick':''));
@@ -458,6 +468,33 @@ function itemRow(it,list,di,prevT,mode){
     r.addEventListener('drop',ev=>{ if(!DRAG||DRAG.type!=='item'||DRAG.id===it.id) return; ev.preventDefault(); ev.stopPropagation(); const after=r.classList.contains('drop-after'); r.classList.remove('drop-before','drop-after'); const idx=list.indexOf(it); moveItem(DRAG.id,list,after?idx+1:idx); });
   }
   return r;
+}
+/* time is picked, not typed: hour and minute selects, minutes in 10-minute steps; arrow keys or the wheel step it, minutes carry into the hour */
+function timePick(it,list){
+  const w=el('span','tsel'); const pad=n=>String(n).padStart(2,'0');
+  const cur=it.t||''; const ch=cur?cur.slice(0,2):'', cm=cur?cur.slice(3,5):'';
+  const opt=(s,v)=>{const o=el('option','',v||'--');o.value=v;s.appendChild(o);};
+  const hs=el('select'); hs.dataset.k='t:'+it.id; opt(hs,''); for(let h=0;h<24;h++) opt(hs,pad(h)); if(ch&&+ch>23) opt(hs,ch);
+  const ms=el('select'); ms.dataset.k='tm:'+it.id; const mins=['00','10','20','30','40','50']; if(cm&&!mins.includes(cm)){mins.push(cm);mins.sort();} mins.forEach(m=>opt(ms,m));
+  hs.value=ch; ms.value=cm||'00'; ms.disabled=!ch;
+  let timer=null;
+  const save=()=>{ clearTimeout(timer); timer=null; const v=hs.value?hs.value+':'+ms.value:''; if(v===(it.t||'')) return; it.t=v; resort(list); commit(); };
+  const set=(h,m)=>{ hs.value=pad(h); if(![...ms.options].some(o=>o.value===pad(m))) opt(ms,pad(m)); ms.value=pad(m); ms.disabled=false; clearTimeout(timer); timer=setTimeout(save,600); };
+  const step=(s,dir)=>{
+    if(!hs.value){ set(9,0); return; }
+    const h=+hs.value, m=+ms.value;
+    if(s===hs){ set((h+dir+24)%24,m); return; }
+    let t=h*60+m; t=dir>0?Math.floor(t/10)*10+10:Math.ceil(t/10)*10-10; t=(t+1440)%1440; set(Math.floor(t/60),t%60); };
+  [hs,ms].forEach(s=>{
+    s.addEventListener('keydown',ev=>{ ev.stopPropagation();
+      if(ev.key==='ArrowUp'||ev.key==='ArrowDown'){ ev.preventDefault(); step(s,ev.key==='ArrowUp'?1:-1); }
+      else if(ev.key==='Enter'){ ev.preventDefault(); s.blur(); } });
+    s.addEventListener('wheel',ev=>{ if(document.activeElement!==s) return; ev.preventDefault(); step(s,ev.deltaY<0?1:-1); },{passive:false});
+    s.addEventListener('change',()=>{ if(s===hs) ms.disabled=!hs.value; save(); });
+    s.addEventListener('blur',()=>setTimeout(()=>{ if(timer) save(); },0));
+    s.addEventListener('click',ev=>ev.stopPropagation());
+  });
+  w.append(hs,el('span','',':'),ms); return w;
 }
 /* place not found: search it on Google Maps, then paste the page URL back here to read its coordinates */
 function gmRow(it){
