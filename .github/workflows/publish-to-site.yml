@@ -1,0 +1,33 @@
+name: 發布到 clinqclinq.studio
+
+on:
+  push:
+    branches: [main]
+    paths: [index.html]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 複製到 clinqclinq.studio
+        env:
+          SITE_TOKEN: ${{ secrets.SITE_TOKEN }}
+          SITE_REPO: clinqclinq.studio      
+          SITE_BRANCH: ""                   
+          TARGET_DIR: supply/trip-planner    # 網址路徑
+        run: |
+          if [ -z "$SITE_TOKEN" ]; then echo "沒有 SITE_TOKEN，略過"; exit 0; fi
+          git clone --depth 1 ${SITE_BRANCH:+--branch "$SITE_BRANCH"} \
+            "https://x-access-token:${SITE_TOKEN}@github.com/${GITHUB_REPOSITORY_OWNER}/${SITE_REPO}.git" site
+          mkdir -p "site/$TARGET_DIR"
+          cp index.html "site/$TARGET_DIR/index.html"
+          cd site
+          git add "$TARGET_DIR/index.html"
+          if git diff --cached --quiet; then echo "內容沒變"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git commit -m "trip-planner: ${GITHUB_REPOSITORY}@${GITHUB_SHA::7}"
+          git push
